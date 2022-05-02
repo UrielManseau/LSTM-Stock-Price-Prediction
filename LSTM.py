@@ -7,15 +7,18 @@ import numpy as np
 import pandas as pd
 import math
 from sklearn.preprocessing import MinMaxScaler
+from tensorflow import keras 
 from keras.models import Sequential
 from keras.layers import Dense, LSTM
 import matplotlib.pyplot as plt
 from datetime import datetime
 plt.style.use('fivethirtyeight')
+from keras import callbacks
+from keras.callbacks import EarlyStopping
 
 #Obtenir le data sur le stock
 symbole = input("Entrez le symbole du titre : ")
-debut = datetime(int(input("Année IPO : ")), int(input("Mois IPO : ")), int(input("Jour IPO :")))
+debut = datetime(int(input("Année début période: ")), int(input("Mois début période : ")), int(input("Jour début période :")))
 fin = datetime.today().strftime("%Y-%m-%d")
 data = web.DataReader(symbole, data_source = 'yahoo', start = debut, end = fin)
 
@@ -44,10 +47,10 @@ trainData = scaledData[0:trainingDataLen, :]
 #Séparer le data en xTrain et yTrain
 xTrain = []
 yTrain = []
-for i in range(60, len(trainData)):
-    xTrain.append(trainData[i-60:i,0])
+for i in range(100, len(trainData)):
+    xTrain.append(trainData[i-100:i,0])
     yTrain.append(trainData[i,0])
-    if i <= 60:
+    if i <= 100:
         print(xTrain)
         print(yTrain)
         print()
@@ -58,29 +61,28 @@ xTrain, yTrain = np.array(xTrain), np.array(yTrain)
 xTrain = np.reshape(xTrain, (xTrain.shape[0], xTrain.shape[1],1))
 
 #Construire modèle Long short-term memory
-#2 couches LSTM de 50 neurones chaque 
-#2 couches denses (regulières), une de 25 neurones et l'autre de 1 neurones
 model = Sequential()
-model.add(LSTM(50, return_sequences=True, input_shape = (xTrain.shape[1],1)))
-model.add(LSTM(50, return_sequences = False))
-model.add(Dense(25))
+model.add(LSTM(100, return_sequences=True, input_shape = (xTrain.shape[1],1)))
+model.add(LSTM(100, return_sequences = False))
+model.add(Dense(50))
 model.add(Dense(1))
 
 #Compiler le modèle
 model.compile(optimizer='adam', loss ='mean_squared_error')
 
 #Entraîner le modèle
-model.fit(xTrain, yTrain, batch_size=1,epochs=1)
+model.fit(xTrain, yTrain, batch_size=64,epochs=9)
+
 
 #Le traning data aura des valeurs scaled de 0 à 1 et représentera 20% des données
-testData = scaledData[trainingDataLen - 60:, :]
+testData = scaledData[trainingDataLen - 100:, :]
 
 #Créer les data sets de test xTest et yTest
 xTest = []
 yTest = dataset[trainingDataLen:, :]
 
-for i in range(60, len(testData)):
-    xTest.append(testData[i-60:i, 0])
+for i in range(100, len(testData)):
+    xTest.append(testData[i-100:i, 0])
     
 xTest = np.array(xTest)
 xTest = np.reshape(xTest, (xTest.shape[0], xTrain.shape[1], 1))
@@ -111,8 +113,8 @@ new_quote = web.DataReader(symbole, data_source='yahoo', start= debut, end=fin)
 #Créer un nouveau data frame
 df = new_quote.filter(['Close'])
 
-#Obtenir les 60 derniers prix de fermeture et convertir le data frame en un tableau
-derniers60Jours = df[-60:].values
+#Obtenir les x derniers prix de fermeture et convertir le data frame en un tableau
+derniers60Jours = df[-100:].values
 #Scaler le data
 derniers60JoursScaled = scaler.transform(derniers60Jours)
 
@@ -121,26 +123,23 @@ xTest = []
 xTest.append(derniers60JoursScaled)
 xTest = np.array(xTest)
 xTest = np.reshape(xTest, (xTest.shape[0], xTest.shape[1],1 ))
+
 #Obtenir les valeurs prédites
 prixPred = model.predict(xTest)
 
-#De-scale le data et présnter les résultats
+#De-scale le data et présenter les résultats
 prixPred = scaler.inverse_transform(prixPred)
 print('Le prix de fermeture prédit pour demain du symbole ' + symbole + ' est :')
-print (prixPred)
+print (prixPred[0,0])
+
+prixFermetureToday = web.DataReader(symbole, data_source = 'yahoo', start = fin, end = fin,)['Close'][0]
+print('Le prix de fermeture pour aujourdhui: ') 
+print(prixFermetureToday)
 
 
+volatiliteImpliquee = (((prixPred - prixFermetureToday)/prixFermetureToday)*100)[0,0]
 
+print('le prix de fermeture prédit implique une volatilité de: ' + str(volatiliteImpliquee) + ' %')
 
-
-
-
-
-
-
-
-
-
-
-
-
+earlyStop=EarlyStopping(monitor="loss",verbose=2,mode='min',patience=3)
+history=model.fit(xTrain,yTrain,epochs=50,batch_size=64 ,verbose=2,callbacks=[earlyStop])
